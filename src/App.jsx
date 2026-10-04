@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { registerPlugin } from '@capacitor/core'
 import { supabase } from './supabase'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
+
+const OnlineOverlay = registerPlugin('OnlineOverlay')
 
 function App() {
   const [session, setSession] = useState(null)
@@ -594,6 +597,34 @@ function App() {
   const toggleOnline = async () => {
     const newStatus = !isOnline
 
+    if (newStatus) {
+      try {
+        if (window.Capacitor?.isNativePlatform?.()) {
+          await OnlineOverlay.start()
+        }
+      } catch (error) {
+        console.log('Overlay start:', error)
+
+        if (
+          error?.message?.includes('OVERLAY_PERMISSION_REQUIRED') ||
+          error?.code === 'OVERLAY_PERMISSION_REQUIRED'
+        ) {
+          alert(
+            'Please allow SIPGO to display over other apps, then tap ONLINE again.'
+          )
+          return
+        }
+      }
+    } else {
+      try {
+        if (window.Capacitor?.isNativePlatform?.()) {
+          await OnlineOverlay.stop()
+        }
+      } catch (error) {
+        console.log('Overlay stop:', error)
+      }
+    }
+
     setIsOnline(newStatus)
 
     const success = await updatePartner({
@@ -602,6 +633,19 @@ function App() {
 
     if (!success) {
       setIsOnline(!newStatus)
+
+      try {
+        if (window.Capacitor?.isNativePlatform?.()) {
+          if (newStatus) {
+            await OnlineOverlay.stop()
+          } else {
+            await OnlineOverlay.start()
+          }
+        }
+      } catch (error) {
+        console.log('Overlay rollback:', error)
+      }
+
       return
     }
 

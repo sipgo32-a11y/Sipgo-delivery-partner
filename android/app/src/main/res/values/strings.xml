@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SIPGO Delivery Partner</string>
+    <string name="title_activity_main">SIPGO Delivery Partner</string>
+    <string name="package_name">com.sipgo.deliverypartner</string>
+    <string name="custom_url_scheme">com.sipgo.deliverypartner</string>
+</resources>
