@@ -616,8 +616,10 @@ function App() {
     const { data, error } = await supabase
       .from('sipgo_orders')
       .select('*')
+      .eq('delivery_partner_id', partner.id)
       .in('status', [
         'PARTNER_ASSIGNED',
+        'REACHED_MERCHANT',
         'PICKED_UP',
         'OUT_FOR_DELIVERY'
       ])
@@ -1253,6 +1255,18 @@ function App() {
           <section className="mapDashboard">
 
             <div
+              className={
+                isOnline
+                  ? 'partnerOnlineBadge online'
+                  : 'partnerOnlineBadge offline'
+              }
+            >
+              {isOnline
+                ? '🟢 PARTNER ONLINE'
+                : '🔴 PARTNER OFFLINE'}
+            </div>
+
+            <div
               ref={mapContainerRef}
               className="fullMap"
             />
@@ -1340,14 +1354,50 @@ function App() {
                       !accepted && (
                         <button
                           className="mapActionButton accept"
-                          onClick={() =>
+                          onClick={async () => {
+                            if (!partner?.id) {
+                              alert('❌ Partner profile not found')
+                              return
+                            }
+
+                            const { data, error } =
+                              await supabase.rpc(
+                                'partner_accept_order',
+                                {
+                                  p_order_id: order.id,
+                                  p_partner_id: partner.id
+                                }
+                              )
+
+                            if (error) {
+                              alert(
+                                '❌ Order accept failed: ' +
+                                error.message
+                              )
+                              return
+                            }
+
+                            if (!data) {
+                              alert('❌ Order is no longer available')
+                              return
+                            }
+
                             setAcceptedOrderIds((prev) => [
                               ...new Set([
                                 ...prev,
                                 order.id
                               ])
                             ])
-                          }
+
+                            stopOrderAlert()
+                            await loadAssignedOrders()
+
+                            alert(
+                              '✅ Order #' +
+                              order.id +
+                              ' accepted'
+                            )
+                          }}
                         >
                           🔔 ACCEPT ORDER
                         </button>
@@ -1360,13 +1410,27 @@ function App() {
                           onClick={() =>
                             updateOrderStatus(
                               order.id,
-                              'PICKED_UP'
+                              'REACHED_MERCHANT'
                             )
                           }
                         >
-                          📦 Pick Up
+                          📍 Reached Merchant
                         </button>
                       )}
+
+                    {order.status === 'REACHED_MERCHANT' && (
+                      <button
+                        className="mapActionButton"
+                        onClick={() =>
+                          updateOrderStatus(
+                            order.id,
+                            'PICKED_UP'
+                          )
+                        }
+                      >
+                        📦 Confirm Handover / Pick Up
+                      </button>
+                    )}
 
                     {order.status === 'PICKED_UP' && (
                       <button

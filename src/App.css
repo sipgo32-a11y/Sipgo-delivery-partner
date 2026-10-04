@@ -612,3 +612,28 @@
   border: 2px solid rgba(255,255,255,0.25);
   cursor: pointer;
 }
+
+.partnerOnlineBadge {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 99999;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.18);
+  border: 1px solid #ddd;
+  pointer-events: none;
+}
+
+.partnerOnlineBadge.online {
+  color: #087f23;
+  border-color: #39a852;
+}
+
+.partnerOnlineBadge.offline {
+  color: #b42318;
+  border-color: #e05252;
+}
