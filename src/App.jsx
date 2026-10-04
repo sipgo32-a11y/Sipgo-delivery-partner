@@ -1,121 +1,103 @@
 import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [online, setOnline] = useState(true)
+
+  if (!loggedIn) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <div className="logo">S</div>
+          <h1>SIPGO</h1>
+          <p className="subtitle">Delivery Partner</p>
+
+          <input placeholder="Mobile number" type="tel" />
+          <input placeholder="Password" type="password" />
+
+          <button className="primary" onClick={() => setLoggedIn(true)}>
+            Login
+          </button>
+
+          <p className="login-help">Delivery Partner Login</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <div className="app">
+      <header className="header">
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
+          <div className="brand">SIPGO</div>
+          <div className="welcome">Welcome, Delivery Partner</div>
         </div>
+
         <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+          className={online ? 'status online' : 'status offline'}
+          onClick={() => setOnline(!online)}
         >
-          Count is {count}
+          <span></span>
+          {online ? 'Online' : 'Offline'}
         </button>
-      </section>
+      </header>
 
-      <div className="ticks"></div>
+      <main>
+        <section className="profile-card">
+          <div className="avatar">DP</div>
+          <div className="profile-info">
+            <h2>Delivery Partner</h2>
+            <p>Partner ID: SIPGO-DP-001</p>
+            <p>⭐ 5.0 Rating</p>
+          </div>
+          <button className="profile-btn">Profile</button>
+        </section>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        <section className="stats">
+          <div>
+            <strong>0</strong>
+            <span>Today's Orders</span>
+          </div>
+          <div>
+            <strong>₹0</strong>
+            <span>Today's Earnings</span>
+          </div>
+          <div>
+            <strong>0</strong>
+            <span>Completed</span>
+          </div>
+        </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        <section className="section-title">
+          <h2>Assigned Bookings</h2>
+          <span>0 Orders</span>
+        </section>
+
+        <section className="empty-card">
+          <div className="empty-icon">🛵</div>
+          <h3>No new bookings</h3>
+          <p>
+            New delivery bookings will appear here when a merchant confirms
+            an order.
+          </p>
+        </section>
+
+        <section className="quick-actions">
+          <button>📦 My Orders</button>
+          <button>💰 Earnings</button>
+          <button>📍 Location</button>
+          <button>☎️ Support</button>
+        </section>
+      </main>
+
+      <nav className="bottom-nav">
+        <button className="active">⌂<span>Home</span></button>
+        <button>📦<span>Orders</span></button>
+        <button>💰<span>Earnings</span></button>
+        <button>👤<span>Profile</span></button>
+      </nav>
+    </div>
   )
 }
 
