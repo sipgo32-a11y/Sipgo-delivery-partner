@@ -1983,14 +1983,10 @@ function App() {
                       setActiveTab('home')
 
                       const lat = Number(
-                        order.pickup_latitude ??
-                        order.shop_latitude ??
-                        order.latitude
+                        order.delivery_latitude
                       )
                       const lng = Number(
-                        order.pickup_longitude ??
-                        order.shop_longitude ??
-                        order.longitude
+                        order.delivery_longitude
                       )
 
                       setTimeout(() => {
@@ -2002,7 +1998,7 @@ function App() {
                             mapRef.current.setView([lat, lng], 16)
                             L.marker([lat, lng])
                               .addTo(mapRef.current)
-                              .bindPopup('↻ Pickup Location')
+                              .bindPopup('📍 Customer Delivery Location')
                               .openPopup()
                           } else {
                             mapRef.current.setView(
@@ -2155,15 +2151,24 @@ function App() {
                       if (mapRef.current) {
                         mapRef.current.invalidateSize()
 
+                        const isCustomerDelivery =
+                          order.status === 'PICKED_UP' ||
+                          order.status === 'OUT_FOR_DELIVERY'
+
                         const lat = Number(
-                          order.pickup_latitude ??
-                          order.shop_latitude ??
-                          order.latitude
+                          isCustomerDelivery
+                            ? order.delivery_latitude
+                            : (order.pickup_latitude ??
+                               order.shop_latitude ??
+                               order.latitude)
                         )
+
                         const lng = Number(
-                          order.pickup_longitude ??
-                          order.shop_longitude ??
-                          order.longitude
+                          isCustomerDelivery
+                            ? order.delivery_longitude
+                            : (order.pickup_longitude ??
+                               order.shop_longitude ??
+                               order.longitude)
                         )
 
                         if (
