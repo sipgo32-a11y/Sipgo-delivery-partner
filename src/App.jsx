@@ -55,6 +55,17 @@ function App() {
   const alertTimerRef = useRef(null)
   const audioContextRef = useRef(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [editingProfile, setEditingProfile] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [vehicleNumber, setVehicleNumber] = useState('')
+  const [rcPhoto, setRcPhoto] = useState(null)
+  const [rcPhotoPreview, setRcPhotoPreview] = useState('')
+  const [activeTab, setActiveTab] = useState('home')
+  const [navigationOrder, setNavigationOrder] = useState(null)
+  const [showNotifications, setShowNotifications] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -186,11 +197,201 @@ function App() {
 
     setPartnerName(data.Name || '')
     setPhone(data.Phone || '')
+    setVehicleNumber(data.vehicle_number || '')
+
+    if (data.rc_photo_url) {
+      const { data: signedRc } = await supabase.storage
+        .from('partner-photos')
+        .createSignedUrl(data.rc_photo_url, 60 * 60 * 24 * 7)
+
+      if (signedRc?.signedUrl) {
+        setRcPhotoPreview(signedRc.signedUrl)
+      }
+    } else {
+      setRcPhotoPreview('')
+    }
     setIsOnline(Boolean(data.Is_online))
     setLatitude(data.Latitude || null)
     setLongitude(data.longitude || null)
 
     checkDailyVerification(data)
+  }
+
+  const saveProfileChanges = async () => {
+    if (!partner?.id || !session?.user?.id) {
+      alert('❌ Partner profile not found')
+      return
+    }
+
+    const cleanName = editName.trim()
+    const cleanPhone = editPhone.replace(/\D/g, '')
+    const cleanEmail = editEmail.trim()
+
+    if (!cleanName) {
+      alert('❌ Name compulsory')
+      return
+    }
+
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      alert('❌ Valid 10 digit Indian mobile number enter madi')
+      return
+    }
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      alert('❌ Valid email enter madi')
+      return
+    }
+
+    setSavingProfile(true)
+
+    try {
+      let photoPath = partner.profile_photo_url || null
+
+      if (profilePhoto) {
+        const extension =
+          profilePhoto.name.split('.').pop()?.toLowerCase() || 'jpg'
+
+        photoPath =
+          `${session.user.id}/profile.${extension}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('partner-photos')
+          .upload(
+            photoPath,
+            profilePhoto,
+            {
+              upsert: true,
+              contentType: profilePhoto.type || 'image/jpeg'
+            }
+          )
+
+        if (uploadError) {
+          throw new Error(
+            'Profile photo save failed: ' +
+            uploadError.message
+          )
+        }
+      }
+
+      let rcPath = partner.rc_photo_url || null
+
+      if (rcPhoto) {
+        const rcExtension =
+          rcPhoto.name.split('.').pop()?.toLowerCase() || 'jpg'
+
+        rcPath = `${session.user.id}/rc.${rcExtension}`
+
+        const { error: rcUploadError } = await supabase.storage
+          .from('partner-photos')
+          .upload(
+            rcPath,
+            rcPhoto,
+            {
+              upsert: true,
+              contentType: rcPhoto.type || 'image/jpeg'
+            }
+          )
+
+        if (rcUploadError) {
+          throw new Error(
+            'RC photo save failed: ' + rcUploadError.message
+          )
+        }
+      }
+
+      const updateData = {
+        Name: cleanName,
+        Phone: cleanPhone,
+        vehicle_number: vehicleNumber.trim() || null,
+        rc_photo_url: rcPath
+      }
+
+      if (photoPath) {
+        updateData.profile_photo_url = photoPath
+      }
+
+      const { data: updatedPartner, error: partnerError } =
+        await supabase
+          .from('delivery_partners')
+          .update(updateData)
+          .eq('id', partner.id)
+          .select('*')
+          .single()
+
+      if (partnerError) {
+        throw new Error(
+          'Profile update failed: ' +
+          partnerError.message
+        )
+      }
+
+      let emailMessage = ''
+
+      if (
+        cleanEmail.toLowerCase() !==
+        String(session.user.email || '').toLowerCase()
+      ) {
+        const { error: emailError } =
+          await supabase.auth.updateUser({
+            email: cleanEmail
+          })
+
+        if (emailError) {
+          throw new Error(
+            'Email update failed: ' +
+            emailError.message
+          )
+        }
+
+        emailMessage =
+          ' Email verification link new email-ge send agide.'
+      }
+
+      let finalPartner = updatedPartner
+
+      if (photoPath) {
+        const { data: signedPhoto } =
+          await supabase.storage
+            .from('partner-photos')
+            .createSignedUrl(photoPath, 60 * 60 * 24 * 7)
+
+        if (signedPhoto?.signedUrl) {
+          setProfilePhotoPreview(signedPhoto.signedUrl)
+        }
+      }
+
+      if (rcPath) {
+        const { data: signedRc } =
+          await supabase.storage
+            .from('partner-photos')
+            .createSignedUrl(rcPath, 60 * 60 * 24 * 7)
+
+        if (signedRc?.signedUrl) {
+          setRcPhotoPreview(signedRc.signedUrl)
+        }
+      }
+
+      finalPartner = {
+        ...updatedPartner
+      }
+
+      setPartner(finalPartner)
+      setPartnerName(cleanName)
+      setPhone(cleanPhone)
+      setEmail(cleanEmail)
+      setVehicleNumber(vehicleNumber.trim())
+      setRcPhoto(null)
+      setProfilePhoto(null)
+      setEditingProfile(false)
+      setMessage('✅ Profile updated successfully.' + emailMessage)
+
+      await loadPartner()
+
+    } catch (error) {
+      alert('❌ ' + error.message)
+    } finally {
+      setSavingProfile(false)
+    }
   }
 
   const checkDailyVerification = (data) => {
@@ -231,45 +432,72 @@ function App() {
   }
 
   useEffect(() => {
-    if (!session || showProfile || mapRef.current || !mapContainerRef.current) {
+    if (!session || showProfile || activeTab !== 'home' || !mapContainerRef.current) {
       return
     }
 
-    const startLat = latitude ?? 20.5937
-    const startLng = longitude ?? 78.9629
+    const timer = setTimeout(() => {
+      if (!mapContainerRef.current) return
 
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: false
-    }).setView([startLat, startLng], latitude && longitude ? 15 : 5)
-
-    L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19
+      // Remove any old Leaflet instance before creating a new one
+      if (mapRef.current) {
+        try {
+          mapRef.current.remove()
+        } catch (e) {}
+        mapRef.current = null
+        markerRef.current = null
       }
-    ).addTo(map)
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
+      const startLat = latitude ?? 20.5937
+      const startLng = longitude ?? 78.9629
 
-    mapRef.current = map
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: false
+      }).setView(
+        [startLat, startLng],
+        latitude && longitude ? 15 : 5
+      )
 
-    if (latitude && longitude) {
-      markerRef.current = L.marker([latitude, longitude])
-        .addTo(map)
-        .bindPopup('📍 Your current location')
-    }
+      L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19
+        }
+      ).addTo(map)
 
-    setTimeout(() => map.invalidateSize(), 200)
+      L.control.zoom({
+        position: 'bottomright'
+      }).addTo(map)
+
+      mapRef.current = map
+
+      if (latitude && longitude) {
+        markerRef.current = L.marker([latitude, longitude])
+          .addTo(map)
+          .bindPopup('↻ Your current location')
+      }
+
+      setTimeout(() => {
+        if (mapRef.current) {
+          mapRef.current.invalidateSize()
+        }
+      }, 300)
+    }, 100)
 
     return () => {
+      clearTimeout(timer)
+
       if (mapRef.current) {
-        mapRef.current.remove()
+        try {
+          mapRef.current.remove()
+        } catch (e) {}
+
         mapRef.current = null
         markerRef.current = null
       }
     }
-  }, [session, showProfile])
+  }, [session, showProfile, activeTab])
 
   useEffect(() => {
     if (!mapRef.current || latitude == null || longitude == null) {
@@ -281,7 +509,7 @@ function App() {
     if (!markerRef.current) {
       markerRef.current = L.marker(position)
         .addTo(mapRef.current)
-        .bindPopup('📍 Your current location')
+        .bindPopup('↻ Your current location')
     } else {
       markerRef.current.setLatLng(position)
     }
@@ -925,7 +1153,7 @@ function App() {
           <div className="partnerLabel">
             DELIVERY PARTNER
           </div>
-        </header>
+  </header>
 
         <main className="deliveryMain">
           <section className="deliveryCard">
@@ -950,7 +1178,7 @@ function App() {
                   placeholder="Enter your name"
                 />
 
-                <label>Phone number</label>
+                <label>Phone number <span style={{color:"#ef4444"}}>*</span></label>
 
                 <input
                   type="tel"
@@ -958,7 +1186,7 @@ function App() {
                   onChange={(e) =>
                     setPhone(e.target.value)
                   }
-                  placeholder="Enter phone number"
+                  placeholder="Enter phone number" required inputMode="tel"
                 />
 
                 <label>Profile Photo</label>
@@ -1221,332 +1449,890 @@ function App() {
       <main className="deliveryMain">
 
         {showProfile ? (
-          <section className="deliveryCard profilePage">
+          <section className="officialProfilePage">
 
-            <h1>👤 Partner Profile</h1>
-
-            {profilePhotoPreview && (
-              <div className="profilePhotoWrap">
-                <img
-                  src={profilePhotoPreview}
-                  alt="Partner profile"
-                  className="profilePhoto"
-                />
-              </div>
-            )}
-
-            <div className="locationBox">
-
-              <p>
-                <strong>🆔 Partner ID</strong><br />
-                <span className="partnerIdValue">
-                  {partner?.id
-                    ? `SIPGO-DP-${String(partner.id).padStart(6, '0')}`
-                    : 'Loading...'}
-                </span>
-              </p>
-
-              <p>
-                <strong>👤 Name</strong><br />
-                {partner?.Name || 'Not available'}
-              </p>
-
-              <p>
-                <strong>📞 Phone</strong><br />
-                {partner?.Phone || 'Not available'}
-              </p>
-
-              <p>
-                <strong>📧 Email</strong><br />
-                {session.user.email}
-              </p>
-
-              <p>
-                <strong>Verification</strong><br />
-                {partner?.verification_status === 'VERIFIED'
-                  ? '🟢 Verified'
-                  : '🔴 Not Verified'}
-              </p>
-
-            </div>
-
-            <div className="statsGrid">
-
-              <div className="statCard">
-                <span>📦</span>
-                <strong>{profileStats.totalOrders}</strong>
-                <small>My Orders</small>
-              </div>
-
-              <div className="statCard">
-                <span>💰</span>
-                <strong>
-                  ₹{profileStats.totalEarnings.toFixed(2)}
-                </strong>
-                <small>Total Earnings</small>
-              </div>
-
-              <div className="statCard">
-                <span>📅</span>
-                <strong>{profileStats.weekOrders}</strong>
-                <small>This Week Orders</small>
-              </div>
-
-              <div className="statCard">
-                <span>💵</span>
-                <strong>
-                  ₹{profileStats.weekEarnings.toFixed(2)}
-                </strong>
-                <small>This Week Earnings</small>
-              </div>
-
-            </div>
-
-            <p className="weekNote">
-              🔄 This Week automatic update agutte.
-            </p>
-
-            <button
-              className="locationButton"
-              onClick={() => setShowProfile(false)}
-            >
-              ← Back to Dashboard
-            </button>
-
-            <button
-              className="locationButton"
-              onClick={logout}
-            >
-              🚪 Logout
-            </button>
-
-          </section>
-        ) : (
-          <section className="mapDashboard">
-
-            <div
-              className={
-                isOnline
-                  ? 'partnerOnlineBadge online'
-                  : 'partnerOnlineBadge offline'
-              }
-            >
-              {isOnline
-                ? '🟢 PARTNER ONLINE'
-                : '🔴 PARTNER OFFLINE'}
-            </div>
-
-            <div
-              ref={mapContainerRef}
-              className="fullMap"
+  {!editingProfile ? (
+    <>
+      <div className="officialProfileHeader">
+        <div className="officialProfileAvatar">
+          {profilePhotoPreview ? (
+            <img
+              src={profilePhotoPreview}
+              alt="Partner"
             />
+          ) : (
+            <span>👤</span>
+          )}
+        </div>
 
-            <div className="mapTopBar">
+        <div>
+          <h1>Partner Profile</h1>
+          <p>SIPGO DELIVERY PARTNER</p>
+        </div>
+      </div>
 
-              <button
-                className={
-                  isOnline
-                    ? 'mapToggleButton online'
-                    : 'mapToggleButton'
-                }
-                onClick={toggleOnline}
-              >
-                {isOnline
-                  ? '🟢 ONLINE'
-                  : '⚫ OFFLINE'}
-              </button>
+      <div className="partnerIdCard">
+        <span>PARTNER ID</span>
+        <strong>
+          {partner?.id
+            ? `SIPGO-DP-${String(partner.id).padStart(6, '0')}`
+            : 'Loading...'}
+        </strong>
+      </div>
 
-              <button
-                className="mapProfileButton"
-                onClick={() => setShowProfile(true)}
-              >
-                👤 Profile
-              </button>
+      <div className="officialProfileDetails">
 
+        <div className="officialDetailRow">
+          <div className="officialDetailIcon">👤</div>
+          <div>
+            <small>FULL NAME</small>
+            <strong>{partner?.Name || 'Not available'}</strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow phoneDetail">
+          <div className="officialDetailIcon">📞</div>
+          <div>
+            <small>MOBILE NUMBER</small>
+            <strong>
+              {partner?.Phone || 'Mobile number not available'}
+            </strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow">
+          <div className="officialDetailIcon">📧</div>
+          <div>
+            <small>EMAIL ADDRESS</small>
+            <strong>{session.user.email}</strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow">
+          <div className="officialDetailIcon">🛵</div>
+          <div>
+            <small>ROLE</small>
+            <strong>Delivery Partner</strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow">
+          <div className="officialDetailIcon">🛵</div>
+          <div>
+            <small>VEHICLE NUMBER</small>
+            <strong>{partner?.vehicle_number || 'Not added'}</strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow">
+          <div className="officialDetailIcon">📄</div>
+          <div>
+            <small>RC DOCUMENT</small>
+            <strong>{partner?.rc_photo_url ? 'Uploaded' : 'Not uploaded'}</strong>
+          </div>
+        </div>
+
+        <div className="officialDetailRow verificationRow">
+          <div className="officialDetailIcon">🛡️</div>
+          <div>
+            <small>ACCOUNT VERIFICATION</small>
+            <strong>
+              {partner?.verification_status === 'VERIFIED'
+                ? '🟢 Verified'
+                : '🔴 Not Verified'}
+            </strong>
+          </div>
+        </div>
+
+      </div>
+
+      <div className="officialCompanyCard">
+        <strong>ORVELLIS PRIVATE LIMITED</strong>
+        <span>SIPGO Delivery Platform</span>
+      </div>
+
+      <button
+        type="button"
+        className="officialEditButton"
+        onClick={() => {
+          setEditName(partner?.Name || '')
+          setEditPhone(partner?.Phone || '')
+          setEditEmail(session.user.email || '')
+          setVehicleNumber(partner?.vehicle_number || '')
+          setRcPhoto(null)
+          setProfilePhoto(null)
+          setEditingProfile(true)
+        }}
+      >
+        ✏️ Edit Profile
+      </button>
+
+      <button
+        type="button"
+        className="officialDashboardButton"
+        onClick={() => {
+          setShowProfile(false)
+          setShowNotifications(false)
+          setNavigationOrder(null)
+          setActiveTab('home')
+          setTimeout(() => {
+            mapRef.current?.invalidateSize()
+          }, 400)
+        }}
+      >
+        ← Back to Dashboard
+      </button>
+
+      <button
+        type="button"
+        className="officialLogoutButton"
+        onClick={logout}
+      >
+        🚪 Logout
+      </button>
+    </>
+  ) : (
+    <>
+      <div className="officialProfileHeader">
+        <div className="officialProfileAvatar editAvatar">
+          {profilePhotoPreview ? (
+            <img
+              src={profilePhotoPreview}
+              alt="Partner"
+            />
+          ) : (
+            <span>👤</span>
+          )}
+        </div>
+
+        <div>
+          <h1>Edit Profile</h1>
+          <p>UPDATE YOUR SIPGO DETAILS</p>
+        </div>
+      </div>
+
+      <div className="editPhotoCard">
+        <label className="editPhotoButton">
+          🖼️ Change Profile Photo
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+
+              setProfilePhoto(file)
+              setProfilePhotoPreview(
+                URL.createObjectURL(file)
+              )
+            }}
+          />
+        </label>
+      </div>
+
+      <div className="editProfileForm">
+
+        <label>👤 Full Name</label>
+        <input
+          type="text"
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          placeholder="Enter full name"
+        />
+
+        <label>📞 Mobile Number</label>
+        <input
+          type="tel"
+          inputMode="numeric"
+          maxLength={10}
+          value={editPhone}
+          onChange={(e) =>
+            setEditPhone(
+              e.target.value.replace(/\D/g, '').slice(0, 10)
+            )
+          }
+          placeholder="10 digit mobile number"
+        />
+
+        <label>📧 Email Address</label>
+        <input
+          type="email"
+          value={editEmail}
+          onChange={(e) => setEditEmail(e.target.value)}
+          placeholder="Enter email address"
+        />
+
+        <div className="vehicleRcEditCard">
+          <div className="vehicleRcTitle">
+            <span>🛵</span>
+            <div>
+              <strong>Vehicle Details</strong>
+              <small>Delivery partner verification</small>
+            </div>
+          </div>
+
+          <label>🛵 Vehicle Number</label>
+          <input
+            type="text"
+            value={vehicleNumber}
+            onChange={(e) =>
+              setVehicleNumber(e.target.value.toUpperCase())
+            }
+            placeholder="KA01AB1234"
+            maxLength={15}
+          />
+
+          <div className="rcUploadRow">
+            <div>
+              <strong>📄 RC Photo</strong>
+              <small>
+                {rcPhoto
+                  ? rcPhoto.name
+                  : rcPhotoPreview
+                    ? 'RC uploaded'
+                    : 'RC not uploaded'}
+              </small>
             </div>
 
-            <button
-              className="mapLocationButton"
-              onClick={getLiveLocation}
-              title="Refresh Location"
+            <label className="editPhotoButton">
+              {rcPhotoPreview ? 'Change RC' : 'Upload RC'}
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  setRcPhoto(file)
+                  setRcPhotoPreview(URL.createObjectURL(file))
+                }}
+              />
+            </label>
+          </div>
+
+          {rcPhotoPreview && (
+            <img
+              src={rcPhotoPreview}
+              alt="RC Preview"
+              className="rcPhotoPreview"
+            />
+          )}
+        </div>
+
+      </div>
+
+      <button
+        type="button"
+        className="officialSaveButton"
+        disabled={savingProfile}
+        onClick={saveProfileChanges}
+      >
+        {savingProfile ? '⏳ Saving...' : '💾 Save Changes'}
+      </button>
+
+      <button
+        type="button"
+        className="officialCancelButton"
+        disabled={savingProfile}
+        onClick={() => {
+          setEditingProfile(false)
+          setProfilePhoto(null)
+          setEditName('')
+          setEditPhone('')
+          setEditEmail('')
+          setVehicleNumber(partner?.vehicle_number || '')
+          setRcPhoto(null)
+          setRcPhotoPreview(partner?.rc_photo_url ? rcPhotoPreview : '')
+        }}
+      >
+        ✕ Cancel
+      </button>
+    </>
+  )}
+
+</section>
+        ) : (
+          <section className="sipgoDashboard">
+
+  <header className="sipgoTopHeader">
+    <div>
+      <div className="sipgoLogo">SIP<span>GO</span></div>
+      <small>LIQUOR DELIVERY</small>
+    </div>
+
+    <div className="sipgoHeaderActions">
+      <button
+        type="button"
+        className="headerIconButton"
+        onClick={() => setShowNotifications(prev => !prev)}
+      >
+        🔔
+        {orders.filter(o => o.status === 'PARTNER_ASSIGNED').length > 0 && (
+          <span className="notificationDot">
+            {orders.filter(o => o.status === 'PARTNER_ASSIGNED').length}
+          </span>
+        )}
+      </button>
+
+      <button
+        className="headerIconButton"
+        onClick={() => setShowProfile(true)}
+      >
+        👤
+      </button>
+    </div>
+  </header>
+
+  {showNotifications && (
+    <div className="notificationPanel">
+      <div className="notificationPanelHeader">
+        <strong>🔔 Notifications</strong>
+        <button
+          type="button"
+          onClick={() => setShowNotifications(false)}
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="notificationList">
+        <div className="notificationItem">
+          <div className="notificationIcon">👋</div>
+          <div>
+            <strong>Welcome to SIPGO</strong>
+            <p>You are ready for liquor delivery.</p>
+            <small>Now</small>
+          </div>
+        </div>
+
+        {orders
+          .filter(o => o.status === 'PARTNER_ASSIGNED')
+          .map(order => (
+            <div
+              className="notificationItem"
+              key={`notification-${order.id}`}
             >
-              🔄
+              <div className="notificationIcon">🛵</div>
+              <div>
+                <strong>New Order Assigned</strong>
+                <p>
+                  Order #{order.id} is waiting for your action.
+                </p>
+                <small>SIPGO Delivery</small>
+              </div>
+            </div>
+          ))}
+
+        <div className="notificationItem">
+          <div className="notificationIcon">📢</div>
+          <div>
+            <strong>SIPGO Updates</strong>
+            <p>
+              Keep your status ONLINE to receive delivery requests.
+            </p>
+            <small>SIPGO Team</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  )}
+
+  {activeTab === 'home' && (
+    <>
+      <div className="partnerStatusCard">
+        <button
+          className={isOnline ? 'bigOnlineButton online' : 'bigOnlineButton'}
+          onClick={toggleOnline}
+        >
+          {isOnline ? '🟢 ONLINE' : '⚫ OFFLINE'}
+        </button>
+
+        <div className="quickStat">
+          <strong>{orders.length}</strong>
+          <span>Orders</span>
+        </div>
+
+        <div className="quickStat">
+          <strong>
+            ₹{orders.reduce(
+              (sum, o) => sum + Number(o.delivery_fee || 0),
+              0
+            ).toFixed(0)}
+          </strong>
+          <span>Today Earnings</span>
+        </div>
+
+        <div className="quickStat">
+          <strong>₹0</strong>
+          <span>Wallet</span>
+        </div>
+      </div>
+
+      <div className="sipgoMapArea">
+        <div ref={mapContainerRef} className="sipgoFullMap" />
+
+        <button
+          className="mapLocateButton"
+          onClick={async () => {
+            try {
+              await getLiveLocation()
+              setTimeout(() => {
+                if (mapRef.current) {
+                  mapRef.current.invalidateSize()
+                  if (latitude && longitude) {
+                    mapRef.current.setView([latitude, longitude], 16, {
+                      animate: true
+                    })
+                  }
+                }
+              }, 700)
+            } catch (error) {
+              console.error('Refresh location failed:', error)
+            }
+          }}
+          title="Refresh Location"
+          type="button"
+        >
+          ↻
+        </button>
+
+        {navigationOrder && (
+          <div className="navigationBanner">
+            <strong>🧭 Navigation</strong>
+            <span>
+              Pickup: {navigationOrder.shop_name || 'Demo Pickup Shop'}
+            </span>
+            <button onClick={() => setNavigationOrder(null)}>
+              ✕
             </button>
+          </div>
+        )}
+      </div>
 
-            <div className="mapOrdersOverlay">
+      {orders.length > 0 && (
+        <div className="homeOrderPreview">
+          <div className="sectionTitle">
+            <strong>Orders</strong>
+            <button onClick={() => {
+          setShowProfile(false)
+          setShowNotifications(false)
+          setActiveTab('orders')
+        }}>
+              View All
+            </button>
+          </div>
 
-              {loadingOrders && (
-                <div className="mapOrderCard">
-                  ⏳ Checking orders...
+          {orders.slice(0, 1).map((order) => {
+            const deliveryCharge = Number(order.delivery_fee || 0)
+            const tip = Number(
+              order.tip_amount ??
+              order.tip ??
+              order.customer_tip ??
+              0
+            )
+
+            return (
+              <div className="partnerOrderCard" key={order.id}>
+                <div className="orderTop">
+                  <strong>Order #{order.id}</strong>
+                  <span>{order.status}</span>
                 </div>
-              )}
 
-              {orders.map((order) => {
-                const accepted =
-                  acceptedOrderIds.includes(order.id)
+                <p>🏪 {order.shop_name || `Shop ID: ${order.shop_id}`}</p>
+                <p>📍 {order.delivery_address || 'Delivery location available'}</p>
 
-                return (
-                  <div
-                    key={order.id}
-                    className={
-                      order.status === 'PARTNER_ASSIGNED'
-                        ? 'mapOrderCard newOrder'
-                        : 'mapOrderCard'
-                    }
-                  >
+                {order.customer_phone && (
+                  <div className="customerContactCard">
+                    <div>
+                      <strong>👤 {order.customer_name || 'Customer'}</strong>
+                      <span>📞 {order.customer_phone}</span>
+                    </div>
 
-                    {order.status === 'PARTNER_ASSIGNED' && (
-                      <div className="newOrderTitle">
-                        🔔 NEW ORDER
-                      </div>
-                    )}
+                    <a
+                      className="callCustomerButton"
+                      href={`tel:${String(order.customer_phone).replace(/[^0-9+]/g, '')}`}
+                    >
+                      📞 Call Customer
+                    </a>
+                  </div>
+                )}
 
-                    <strong>
-                      Order #{order.id}
-                    </strong>
+                <div className="partnerMoney">
+                  <div>
+                    <span>Delivery Charge</span>
+                    <strong>₹{deliveryCharge.toFixed(0)}</strong>
+                  </div>
 
-                    <p>
-                      🏪 Shop ID: {order.shop_id}
-                    </p>
+                  <div>
+                    <span>Tip</span>
+                    <strong>+ ₹{tip.toFixed(0)}</strong>
+                  </div>
 
-                    <p>
-                      💰 Order Value: ₹
-                      {Number(
-                        order.total_amount || 0
-                      ).toFixed(2)}
-                    </p>
+                  <div className="youEarn">
+                    <span>You Earn</span>
+                    <strong>₹{(deliveryCharge + tip).toFixed(0)}</strong>
+                  </div>
+                </div>
 
-                    <p>
-                      Status: {order.status}
-                    </p>
+                <div className="orderActions">
+                  <button
+                    className="routeButton"
+                    onClick={() => {
+                      setNavigationOrder(order)
+                      setShowProfile(false)
+                      setActiveTab('home')
 
-                    {order.status === 'PARTNER_ASSIGNED' &&
-                      !accepted && (
-                        <button
-                          className="mapActionButton accept"
-                          onClick={async () => {
-                            if (!partner?.id) {
-                              alert('❌ Partner profile not found')
-                              return
-                            }
+                      const lat = Number(
+                        order.pickup_latitude ??
+                        order.shop_latitude ??
+                        order.latitude
+                      )
+                      const lng = Number(
+                        order.pickup_longitude ??
+                        order.shop_longitude ??
+                        order.longitude
+                      )
 
-                            const { data, error } =
-                              await supabase.rpc(
-                                'partner_accept_order',
-                                {
-                                  p_order_id: order.id,
-                                  p_partner_id: partner.id
-                                }
-                              )
-
-                            if (error) {
-                              alert(
-                                '❌ Order accept failed: ' +
-                                error.message
-                              )
-                              return
-                            }
-
-                            if (!data) {
-                              alert('❌ Order is no longer available')
-                              return
-                            }
-
-                            setAcceptedOrderIds((prev) => [
-                              ...new Set([
-                                ...prev,
-                                order.id
-                              ])
-                            ])
-
-                            stopOrderAlert()
-                            await loadAssignedOrders()
-
-                            alert(
-                              '✅ Order #' +
-                              order.id +
-                              ' accepted'
-                            )
-                          }}
-                        >
-                          🔔 ACCEPT ORDER
-                        </button>
-                      )}
-
-                    {order.status === 'PARTNER_ASSIGNED' &&
-                      accepted && (
-                        <button
-                          className="mapActionButton"
-                          onClick={() =>
-                            updateOrderStatus(
-                              order.id,
-                              'REACHED_MERCHANT'
+                      setTimeout(() => {
+                        if (mapRef.current) {
+                          if (
+                            Number.isFinite(lat) &&
+                            Number.isFinite(lng)
+                          ) {
+                            mapRef.current.setView([lat, lng], 16)
+                            L.marker([lat, lng])
+                              .addTo(mapRef.current)
+                              .bindPopup('↻ Pickup Location')
+                              .openPopup()
+                          } else {
+                            mapRef.current.setView(
+                              [13.2975, 77.5432],
+                              14
                             )
                           }
-                        >
-                          📍 Reached Merchant
-                        </button>
-                      )}
 
-                    {order.status === 'REACHED_MERCHANT' && (
-                      <button
-                        className="mapActionButton"
-                        onClick={() =>
-                          updateOrderStatus(
-                            order.id,
-                            'PICKED_UP'
-                          )
+                          mapRef.current.invalidateSize()
                         }
-                      >
-                        📦 Confirm Handover / Pick Up
-                      </button>
-                    )}
+                      }, 150)
+                    }}
+                  >
+                    🧭 View Route
+                  </button>
 
-                    {order.status === 'PICKED_UP' && (
+                  {order.status === 'PARTNER_ASSIGNED' &&
+                    !acceptedOrderIds.includes(order.id) && (
                       <button
-                        className="mapActionButton"
-                        onClick={() =>
-                          updateOrderStatus(
-                            order.id,
-                            'OUT_FOR_DELIVERY'
-                          )
-                        }
-                      >
-                        🚴 Start Delivery
-                      </button>
-                    )}
-
-                    {order.status === 'OUT_FOR_DELIVERY' && (
-                      <button
-                        className="mapActionButton"
+                        className="acceptButton"
                         onClick={async () => {
-                          await updateOrderStatus(
-                            order.id,
-                            'DELIVERED'
-                          )
+                          if (!partner?.id) {
+                            alert('❌ Partner profile not found')
+                            return
+                          }
 
-                          setAcceptedOrderIds((prev) =>
-                            prev.filter(
-                              (id) => id !== order.id
+                          if (!partner?.Phone || !String(partner.Phone).trim()) {
+                            alert('📱 Mobile number compulsory. Profile alli mobile number add madi, aamele Order Accept madi.')
+                            setShowProfile(true)
+                            return
+                          }
+
+                          const { data, error } =
+                            await supabase.rpc(
+                              'partner_accept_order',
+                              {
+                                p_order_id: order.id,
+                                p_partner_id: partner.id
+                              }
                             )
-                          )
 
-                          await loadProfileStats(
-                            partner?.id
+                          if (error) {
+                            alert(
+                              '❌ Order accept failed: ' +
+                              error.message
+                            )
+                            return
+                          }
+
+                          if (!data) {
+                            alert(
+                              '❌ Order is no longer available'
+                            )
+                            return
+                          }
+
+                          setAcceptedOrderIds((prev) => [
+                            ...new Set([
+                              ...prev,
+                              order.id
+                            ])
+                          ])
+
+                          stopOrderAlert()
+                          await loadAssignedOrders()
+
+                          alert(
+                            '✅ Order #' +
+                            order.id +
+                            ' accepted'
                           )
                         }}
                       >
-                        ✅ Delivered
+                        ✅ Accept Order
                       </button>
                     )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </>
+  )}
 
-                  </div>
-                )
-              })}
+  {activeTab === 'orders' && (
+    <div className="dashboardPage">
+      <div className="pageHeading">
+        <h2>📦 Orders</h2>
+        <span>{orders.length} active</span>
+      </div>
 
+      {orders.length === 0 ? (
+        <div className="emptyOrders">
+          <div>🗺️</div>
+          <h3>No Orders</h3>
+          <p>New delivery orders will appear here.</p>
+        </div>
+      ) : (
+        orders.map((order) => {
+          const deliveryCharge = Number(order.delivery_fee || 0)
+          const tip = Number(
+            order.tip_amount ??
+            order.tip ??
+            order.customer_tip ??
+            0
+          )
+
+          return (
+            <div className="partnerOrderCard" key={order.id}>
+              <div className="orderTop">
+                <strong>Order #{order.id}</strong>
+                <span>{order.status}</span>
+              </div>
+
+              <p>
+                🏪 {order.shop_name || `Shop ID: ${order.shop_id}`}
+              </p>
+
+              <p>↻ Pickup location</p>
+
+              <div className="partnerMoney">
+                <div>
+                  <span>Delivery Charge</span>
+                  <strong>₹{deliveryCharge.toFixed(0)}</strong>
+                </div>
+
+                <div>
+                  <span>Tip</span>
+                  <strong>+ ₹{tip.toFixed(0)}</strong>
+                </div>
+
+                <div className="youEarn">
+                  <span>You Earn</span>
+                  <strong>
+                    ₹{(deliveryCharge + tip).toFixed(0)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="orderActions">
+                <button
+                  className="routeButton"
+                  onClick={() => {
+                    setNavigationOrder(order)
+                    setShowProfile(false)
+                      setActiveTab('home')
+
+                    setTimeout(() => {
+                      if (mapRef.current) {
+                        mapRef.current.invalidateSize()
+
+                        const lat = Number(
+                          order.pickup_latitude ??
+                          order.shop_latitude ??
+                          order.latitude
+                        )
+                        const lng = Number(
+                          order.pickup_longitude ??
+                          order.shop_longitude ??
+                          order.longitude
+                        )
+
+                        if (
+                          Number.isFinite(lat) &&
+                          Number.isFinite(lng)
+                        ) {
+                          mapRef.current.setView(
+                            [lat, lng],
+                            16
+                          )
+                        } else {
+                          mapRef.current.setView(
+                            [13.2975, 77.5432],
+                            14
+                          )
+                        }
+                      }
+                    }, 150)
+                  }}
+                >
+                  🧭 Navigation
+                </button>
+
+                {order.status === 'PARTNER_ASSIGNED' &&
+                  !acceptedOrderIds.includes(order.id) && (
+                    <button
+                      className="acceptButton"
+                      onClick={async () => {
+                        if (!partner?.id) {
+                          alert('❌ Partner profile not found')
+                          return
+                        }
+
+                        const { data, error } =
+                          await supabase.rpc(
+                            'partner_accept_order',
+                            {
+                              p_order_id: order.id,
+                              p_partner_id: partner.id
+                            }
+                          )
+
+                        if (error) {
+                          alert(
+                            '❌ Order accept failed: ' +
+                            error.message
+                          )
+                          return
+                        }
+
+                        if (!data) {
+                          alert(
+                            '❌ Order is no longer available'
+                          )
+                          return
+                        }
+
+                        setAcceptedOrderIds((prev) => [
+                          ...new Set([
+                            ...prev,
+                            order.id
+                          ])
+                        ])
+
+                        stopOrderAlert()
+                        await loadAssignedOrders()
+                      }}
+                    >
+                      ✅ Accept Order
+                    </button>
+                  )}
+              </div>
             </div>
+          )
+        })
+      )}
+    </div>
+  )}
 
-          </section>
+  {activeTab === 'earnings' && (
+    <div className="dashboardPage">
+      <div className="pageHeading">
+        <h2>💰 Earnings</h2>
+      </div>
+
+      <div className="earningsHero">
+        <span>Total Earnings</span>
+        <strong>
+          ₹{profileStats.totalEarnings.toFixed(2)}
+        </strong>
+      </div>
+
+      <div className="earningsGrid">
+        <div>
+          <span>Orders</span>
+          <strong>{profileStats.totalOrders}</strong>
+        </div>
+        <div>
+          <span>This Week</span>
+          <strong>
+            ₹{profileStats.weekEarnings.toFixed(2)}
+          </strong>
+        </div>
+      </div>
+    </div>
+  )}
+
+  <nav className="sipgoBottomNav">
+    <button
+      type="button"
+      className={activeTab === 'home' ? 'active' : ''}
+      onClick={() => {
+        setShowProfile(false)
+        setShowNotifications(false)
+        setNavigationOrder(null)
+        setActiveTab('home')
+
+        setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.invalidateSize()
+          }
+        }, 500)
+      }}
+    >
+      <span>🏠</span>
+      <small>Home</small>
+    </button>
+
+    <button
+      className={activeTab === 'orders' ? 'active' : ''}
+      onClick={() => {
+          setShowProfile(false)
+          setActiveTab('orders')
+        }}
+    >
+      <span>📦</span>
+      <small>Orders</small>
+      {orders.length > 0 && (
+        <b>{orders.length}</b>
+      )}
+    </button>
+
+    <button
+      className={activeTab === 'earnings' ? 'active' : ''}
+      onClick={() => {
+          setShowProfile(false)
+          setShowNotifications(false)
+          setActiveTab('earnings')
+        }}
+    >
+      <span>💰</span>
+      <small>Earnings</small>
+    </button>
+
+    <button
+      type="button"
+      className={showProfile ? 'active' : ''}
+      onClick={() => {
+        setActiveTab('home')
+        setShowNotifications(false)
+        setShowProfile(true)
+      }}
+    >
+      <span>👤</span>
+      <small>Profile</small>
+    </button>
+  </nav>
+
+</section>
         )}
 
 
