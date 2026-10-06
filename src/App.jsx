@@ -767,6 +767,32 @@ function App() {
   const startOrderAlert = () => {
     if (alertTimerRef.current) return
 
+    // 🔔 Ask notification permission once
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+
+    const showOrderNotification = () => {
+      try {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('🛵 New SIPGO Order', {
+            body: 'New delivery order assigned. Open SIPGO Delivery Partner.',
+            tag: 'sipgo-new-order',
+            requireInteraction: true
+          })
+        }
+
+        // 📳 Vibrate phone
+        if ('vibrate' in navigator) {
+          navigator.vibrate([300, 150, 300, 150, 500])
+        }
+      } catch (error) {
+        console.log('Notification/vibration blocked:', error)
+      }
+    }
+
+    showOrderNotification()
+
     const beep = async () => {
       try {
         if (!audioContextRef.current) {
