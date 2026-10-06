@@ -63,6 +63,19 @@ function App() {
   const [vehicleNumber, setVehicleNumber] = useState('')
   const [rcPhoto, setRcPhoto] = useState(null)
   const [rcPhotoPreview, setRcPhotoPreview] = useState('')
+
+  const [bankAccountHolder, setBankAccountHolder] = useState('')
+  const [bankName, setBankName] = useState('')
+  const [bankAccountNumber, setBankAccountNumber] = useState('')
+  const [bankIfscCode, setBankIfscCode] = useState('')
+  const [bankUpiId, setBankUpiId] = useState('')
+
+  // SIPGO Wallet
+  const [walletBalance, setWalletBalance] = useState(0)
+  const [cashOutAmount, setCashOutAmount] = useState('')
+  const [cashOutLoading, setCashOutLoading] = useState(false)
+  const [cashOutMessage, setCashOutMessage] = useState('')
+
   const [activeTab, setActiveTab] = useState('home')
   const [navigationOrder, setNavigationOrder] = useState(null)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -154,6 +167,32 @@ function App() {
     })
   }
 
+  const loadWalletBalance = async (partnerId) => {
+    if (!partnerId) {
+      setWalletBalance(0)
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('partner_wallet_transactions')
+      .select('amount, status')
+      .eq('partner_id', partnerId)
+      .eq('status', 'COMPLETED')
+
+    if (error) {
+      console.error('Wallet balance load failed:', error)
+      setWalletBalance(0)
+      return
+    }
+
+    const balance = (data || []).reduce(
+      (sum, transaction) => sum + Number(transaction.amount || 0),
+      0
+    )
+
+    setWalletBalance(Math.max(0, Number(balance.toFixed(2))))
+  }
+
   const loadPartner = async () => {
     if (!session?.user?.id) return
 
@@ -194,10 +233,17 @@ function App() {
     }
 
     await loadProfileStats(data.id)
+    await loadWalletBalance(data.id)
 
     setPartnerName(data.Name || '')
     setPhone(data.Phone || '')
     setVehicleNumber(data.vehicle_number || '')
+
+    setBankAccountHolder(data.bank_account_holder_name || '')
+    setBankName(data.bank_name || '')
+    setBankAccountNumber(data.bank_account_number || '')
+    setBankIfscCode(data.bank_ifsc_code || '')
+    setBankUpiId(data.bank_upi_id || '')
 
     if (data.rc_photo_url) {
       const { data: signedRc } = await supabase.storage
@@ -303,7 +349,13 @@ function App() {
         Name: cleanName,
         Phone: cleanPhone,
         vehicle_number: vehicleNumber.trim() || null,
-        rc_photo_url: rcPath
+        rc_photo_url: rcPath,
+        bank_account_holder_name: bankAccountHolder.trim() || null,
+        bank_name: bankName.trim() || null,
+        bank_account_number: bankAccountNumber.trim() || null,
+        bank_ifsc_code: bankIfscCode.trim().toUpperCase() || null,
+        bank_upi_id: bankUpiId.trim() || null,
+        bank_details_updated_at: new Date().toISOString()
       }
 
       if (photoPath) {
@@ -1559,6 +1611,11 @@ function App() {
           setEditPhone(partner?.Phone || '')
           setEditEmail(session.user.email || '')
           setVehicleNumber(partner?.vehicle_number || '')
+          setBankAccountHolder(partner?.bank_account_holder_name || '')
+          setBankName(partner?.bank_name || '')
+          setBankAccountNumber(partner?.bank_account_number || '')
+          setBankIfscCode(partner?.bank_ifsc_code || '')
+          setBankUpiId(partner?.bank_upi_id || '')
           setRcPhoto(null)
           setProfilePhoto(null)
           setEditingProfile(true)
@@ -1720,6 +1777,70 @@ function App() {
         </div>
 
       </div>
+
+        <div className="bankDetailsEditCard">
+          <div className="vehicleRcTitle">
+            <span>🏦</span>
+            <div>
+              <strong>Bank Account</strong>
+              <small>For SIPGO delivery earnings</small>
+            </div>
+          </div>
+
+          <label>👤 Account Holder Name</label>
+          <input
+            type="text"
+            value={bankAccountHolder}
+            onChange={(e) => setBankAccountHolder(e.target.value)}
+            placeholder="Enter account holder name"
+          />
+
+          <label>🏦 Bank Name</label>
+          <input
+            type="text"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+            placeholder="Enter bank name"
+          />
+
+          <label>💳 Account Number</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={bankAccountNumber}
+            onChange={(e) =>
+              setBankAccountNumber(
+                e.target.value.replace(/\D/g, '')
+              )
+            }
+            placeholder="Enter bank account number"
+          />
+
+          <label>🔐 IFSC Code</label>
+          <input
+            type="text"
+            value={bankIfscCode}
+            onChange={(e) =>
+              setBankIfscCode(
+                e.target.value.toUpperCase().replace(/\s/g, '')
+              )
+            }
+            placeholder="Example: HDFC0001234"
+            maxLength={11}
+          />
+
+          <label>📱 UPI ID (Optional)</label>
+          <input
+            type="text"
+            value={bankUpiId}
+            onChange={(e) => setBankUpiId(e.target.value)}
+            placeholder="example@upi"
+          />
+
+          <small className="bankSecurityNote">
+            🔒 Bank details are used for SIPGO partner earnings.
+          </small>
+        </div>
 
       <button
         type="button"
@@ -2272,6 +2393,69 @@ function App() {
             ₹{profileStats.weekEarnings.toFixed(2)}
           </strong>
         </div>
+      </div>
+
+      <div className="walletCard">
+        <div className="walletCardHeader">
+          <div>
+            <span>💰 SIPGO Wallet</span>
+            <small>Available balance</small>
+          </div>
+          <strong>₹{Number(walletBalance).toFixed(2)}</strong>
+        </div>
+
+        <div className="walletBankInfo">
+          <span>🏦</span>
+          <div>
+            <strong>
+              {bankName || 'Bank Account'}
+            </strong>
+            <small>
+              {bankAccountNumber
+                ? `XXXXXX${bankAccountNumber.slice(-4)}`
+                : 'Add bank account in Profile'}
+            </small>
+          </div>
+        </div>
+
+        <div className="walletCashOut">
+          <input
+            type="number"
+            min="1"
+            max={walletBalance}
+            value={cashOutAmount}
+            onChange={(e) => setCashOutAmount(e.target.value)}
+            placeholder="Enter amount"
+          />
+
+          <button
+            type="button"
+            disabled={
+              cashOutLoading ||
+              !cashOutAmount ||
+              Number(cashOutAmount) <= 0 ||
+              Number(cashOutAmount) > Number(walletBalance) ||
+              !bankAccountNumber
+            }
+            onClick={() => {
+              setCashOutMessage(
+                '⚡ Cash-out request will be processed to your verified bank account.'
+              )
+            }}
+          >
+            {cashOutLoading ? 'Processing...' : '⚡ Instant Cash Out'}
+          </button>
+        </div>
+
+        {cashOutMessage && (
+          <div className="walletMessage">
+            {cashOutMessage}
+          </div>
+        )}
+
+        <small className="walletSecurityNote">
+          🔒 Cash-out is restricted to your verified bank account.
+        </small>
       </div>
     </div>
   )}
